@@ -425,7 +425,7 @@ const actions = {
 
   // --- Elements ---
 
-  addElement(type: ElementType, x: number, y: number) {
+  addElement(type: ElementType, x: number, y: number, keepTool?: boolean) {
     const defaults = ELEMENT_DEFAULTS[type];
     const activeScreen = project.screens.find((s) => s.id === activeScreenId);
     if (!activeScreen) return;
@@ -451,7 +451,7 @@ const actions = {
       ),
     };
     selectedElementIds = new Set([el.id]);
-    activeTool = 'select';
+    if (!keepTool) activeTool = 'select';
     updateSnapshot();
   },
 
@@ -657,6 +657,23 @@ const actions = {
       id: uuid(),
       name,
       userGoal: goal,
+      elements: [],
+      activeState: 'default' as ScreenStateType,
+      flowX: i * 300,
+      flowY: 0,
+    }));
+    project = { ...project, screens };
+    activeScreenId = screens[0].id;
+    selectedElementIds = new Set();
+    updateSnapshot();
+  },
+
+  scaffoldScreensWithGoals(screenNames: string[], perScreenGoals: string[], fullGoal: string) {
+    pushUndo();
+    const screens: Screen[] = screenNames.map((name, i) => ({
+      id: uuid(),
+      name,
+      userGoal: perScreenGoals[i] || fullGoal,
       elements: [],
       activeState: 'default' as ScreenStateType,
       flowX: i * 300,
