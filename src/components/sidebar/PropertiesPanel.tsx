@@ -22,6 +22,9 @@ export default function PropertiesPanel() {
     updateElement,
     deleteSelectedElements,
     duplicateSelected,
+    copySelected,
+    bringToFront,
+    sendToBack,
     renameScreen,
     setScreenGoal,
   } = useProjectStore();
@@ -97,6 +100,13 @@ export default function PropertiesPanel() {
             </span>
             <div className="flex gap-2">
               <button
+                onClick={copySelected}
+                className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                title="Copy (Cmd+C)"
+              >
+                Copy
+              </button>
+              <button
                 onClick={duplicateSelected}
                 className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
               >
@@ -107,6 +117,27 @@ export default function PropertiesPanel() {
                 className="text-xs text-red-400 hover:text-red-300 transition-colors"
               >
                 Delete
+              </button>
+            </div>
+          </div>
+
+          {/* Layering */}
+          <div>
+            <label className="block text-[10px] font-medium text-gray-500 uppercase mb-1">
+              Layer Order
+            </label>
+            <div className="flex gap-1">
+              <button
+                onClick={() => bringToFront(element.id)}
+                className="flex-1 px-2 py-1 text-[10px] bg-gray-800 border border-gray-700 rounded text-gray-300 hover:bg-gray-700 transition-colors"
+              >
+                Bring Front
+              </button>
+              <button
+                onClick={() => sendToBack(element.id)}
+                className="flex-1 px-2 py-1 text-[10px] bg-gray-800 border border-gray-700 rounded text-gray-300 hover:bg-gray-700 transition-colors"
+              >
+                Send Back
               </button>
             </div>
           </div>

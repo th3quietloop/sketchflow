@@ -22,6 +22,7 @@ export default function TopBar({ onExport, onVersions }: Props) {
     canUndo,
     canRedo,
     snapEnabled,
+    saveStatus,
     setProjectName,
     setDevice,
     setViewMode,
@@ -41,6 +42,15 @@ export default function TopBar({ onExport, onVersions }: Props) {
           onChange={(e) => setProjectName(e.target.value)}
           className="bg-transparent text-sm font-semibold text-gray-200 focus:outline-none focus:text-white border-b border-transparent focus:border-gray-600 px-1"
         />
+
+        {/* Save status indicator */}
+        <span className={`text-[10px] transition-opacity duration-300 ${
+          saveStatus === 'idle' ? 'opacity-0' :
+          saveStatus === 'saving' ? 'opacity-100 text-gray-500' :
+          'opacity-100 text-emerald-500'
+        }`}>
+          {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : ''}
+        </span>
 
         <div className="flex items-center gap-1 bg-gray-900 rounded-md p-0.5">
           {DEVICES.map((d) => (

@@ -14,6 +14,8 @@ interface Props {
   onDragEnd: (x: number, y: number) => void;
   onResizeStart: () => void;
   onResize: (width: number, height: number) => void;
+  onLabelChange?: (label: string) => void;
+  onContextMenu?: (x: number, y: number) => void;
 }
 
 function getElementStyle(type: CanvasElementType['type']) {
@@ -56,6 +58,8 @@ export default function CanvasElementComponent({
   onDragEnd,
   onResizeStart,
   onResize,
+  onLabelChange,
+  onContextMenu,
 }: Props) {
   const groupRef = useRef<Konva.Group>(null);
   const style = getElementStyle(element.type);
@@ -81,6 +85,19 @@ export default function CanvasElementComponent({
     onSelect(false);
   };
 
+  const handleDblClick = () => {
+    if (onLabelChange) {
+      onLabelChange(element.label);
+    }
+  };
+
+  const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
+    e.evt.preventDefault();
+    if (onContextMenu) {
+      onContextMenu(e.evt.clientX, e.evt.clientY);
+    }
+  };
+
   const handleResizeDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
     const node = e.target;
     const newW = Math.max(MIN_SIZE, node.x() + 6);
@@ -94,6 +111,9 @@ export default function CanvasElementComponent({
   const hasAnnotation = element.annotation.length > 0;
   const hasSemanticTag = element.semanticTag !== 'none';
 
+  // Inline edit overlay — rendered outside Konva via a portal-like trick
+  // We'll handle this in ScreenCanvas instead, using an HTML input overlay
+
   return (
     <Group
       ref={groupRef}
@@ -102,9 +122,12 @@ export default function CanvasElementComponent({
       draggable={!resizing}
       onClick={handleClick}
       onTap={handleTap}
+      onDblClick={handleDblClick}
+      onDblTap={handleDblClick}
       onDragStart={handleDragStart}
       onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
+      onContextMenu={handleContextMenu}
     >
       {/* Main shape */}
       <Rect

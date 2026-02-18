@@ -10,21 +10,65 @@ const DEVICES: { value: DeviceType; label: string; desc: string }[] = [
   { value: 'desktop', label: 'Desktop', desc: '1440px viewport' },
 ];
 
-export default function IntentLauncher({ onClose }: { onClose: () => void }) {
-  const { setProjectName, setProjectGoal, setDevice, setScreenGoal, project } =
+/** Try to extract screen names from a goal description */
+function parseScreensFromGoal(goal: string): string[] {
+  // Look for comma-separated or "then" separated actions
+  // "user signs up, picks goals, connects wearable" → 3 screens
+  const cleaned = goal
+    .replace(/^.*?—\s*/, '') // Remove prefix before em dash
+    .replace(/^.*?:\s*/, ''); // Remove prefix before colon
+
+  // Split on common delimiters
+  const parts = cleaned
+    .split(/,\s*(?:then\s+)?|;\s*|\.\s+|(?:\s+then\s+)|(?:\s+and\s+then\s+)/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 3 && p.length < 60);
+
+  if (parts.length < 2) return [];
+
+  // Convert actions to screen names: "signs up" → "Sign Up"
+  return parts.map((part) => {
+    // Remove leading "user" or "they"
+    const clean = part
+      .replace(/^(?:user|they|the user|users)\s+/i, '')
+      .replace(/^(?:can|will|should)\s+/i, '');
+    // Title case
+    return clean
+      .split(' ')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  });
+}
+
+interface Props {
+  onClose: (showBanner: boolean) => void;
+}
+
+export default function IntentLauncher({ onClose }: Props) {
+  const { setProjectName, setProjectGoal, setDevice, setScreenGoal, scaffoldScreens, project } =
     useProjectStore();
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
   const [device, setDeviceLocal] = useState<DeviceType>('mobile');
 
+  const suggestedScreens = parseScreensFromGoal(goal);
+
   const handleStart = () => {
     if (name.trim()) setProjectName(name.trim());
+    setDevice(device);
+
     if (goal.trim()) {
       setProjectGoal(goal.trim());
-      setScreenGoal(project.screens[0].id, goal.trim());
+
+      // If we parsed multiple screens, scaffold them
+      if (suggestedScreens.length >= 2) {
+        scaffoldScreens(suggestedScreens, goal.trim());
+      } else {
+        setScreenGoal(project.screens[0].id, goal.trim());
+      }
     }
-    setDevice(device);
-    onClose();
+
+    onClose(!!goal.trim()); // show banner if goal was set
   };
 
   return (
@@ -63,6 +107,20 @@ export default function IntentLauncher({ onClose }: { onClose: () => void }) {
               rows={3}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
             />
+            {/* Live screen preview */}
+            {suggestedScreens.length >= 2 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <span className="text-[10px] text-gray-500 mr-1 self-center">Screens:</span>
+                {suggestedScreens.map((s, i) => (
+                  <span
+                    key={i}
+                    className="px-2 py-0.5 bg-blue-950/50 border border-blue-800/50 rounded text-[10px] text-blue-300"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Device */}
@@ -91,7 +149,7 @@ export default function IntentLauncher({ onClose }: { onClose: () => void }) {
           {/* Actions */}
           <div className="flex items-center justify-between">
             <button
-              onClick={onClose}
+              onClick={() => onClose(false)}
               className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
             >
               Start from scratch

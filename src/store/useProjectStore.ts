@@ -168,11 +168,23 @@ function loadFromStorage(): Project | null {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let savedTimer: ReturnType<typeof setTimeout> | null = null;
 function saveToStorage(p: Project) {
   if (typeof window === 'undefined') return;
   if (saveTimer) clearTimeout(saveTimer);
+  if (savedTimer) clearTimeout(savedTimer);
+  saveStatus = 'saving';
   saveTimer = setTimeout(() => {
     saveProjectData(p);
+    saveStatus = 'saved';
+    snapshot = buildSnapshot();
+    emit();
+    // Reset to idle after 2s
+    savedTimer = setTimeout(() => {
+      saveStatus = 'idle';
+      snapshot = buildSnapshot();
+      emit();
+    }, 2000);
   }, SAVE_DEBOUNCE_MS);
 }
 
@@ -209,6 +221,8 @@ let activeScreenId: string = project.screens[0]?.id ?? '';
 let activeTool: ElementType | 'select' | 'arrow' = 'select';
 let viewMode: 'screen' | 'flow' = 'screen';
 let snapEnabled: boolean = true;
+let clipboard: CanvasElement[] = [];
+let saveStatus: 'idle' | 'saving' | 'saved' = 'idle';
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -235,6 +249,8 @@ interface StoreSnapshot {
   canUndo: boolean;
   canRedo: boolean;
   snapEnabled: boolean;
+  hasClipboard: boolean;
+  saveStatus: 'idle' | 'saving' | 'saved';
 }
 
 let snapshot: StoreSnapshot = buildSnapshot();
@@ -250,6 +266,8 @@ function buildSnapshot(): StoreSnapshot {
     canUndo: undoStack.length > 0,
     canRedo: redoStack.length > 0,
     snapEnabled,
+    hasClipboard: clipboard.length > 0,
+    saveStatus,
   };
 }
 
@@ -555,6 +573,98 @@ const actions = {
       ),
     };
     selectedElementIds = new Set(newIds);
+    updateSnapshot();
+  },
+
+  // --- Clipboard ---
+
+  copySelected() {
+    const screen = project.screens.find((s) => s.id === activeScreenId);
+    if (!screen || selectedElementIds.size === 0) return;
+    clipboard = screen.elements
+      .filter((el) => selectedElementIds.has(el.id))
+      .map((el) => JSON.parse(JSON.stringify(el)));
+    updateSnapshot();
+  },
+
+  paste() {
+    if (clipboard.length === 0) return;
+    pushUndo();
+    const newIds: string[] = [];
+    const pasted = clipboard.map((el) => {
+      const newId = uuid();
+      newIds.push(newId);
+      return { ...el, id: newId, x: el.x + 16, y: el.y + 16 };
+    });
+    // Update clipboard positions so subsequent pastes cascade
+    clipboard = pasted.map((el) => JSON.parse(JSON.stringify(el)));
+
+    project = {
+      ...project,
+      screens: project.screens.map((s) =>
+        s.id === activeScreenId
+          ? { ...s, elements: [...s.elements, ...pasted] }
+          : s
+      ),
+    };
+    selectedElementIds = new Set(newIds);
+    updateSnapshot();
+  },
+
+  // --- Z-Index / Layering ---
+
+  bringToFront(elementId: string) {
+    const screen = project.screens.find((s) => s.id === activeScreenId);
+    if (!screen) return;
+    const el = screen.elements.find((e) => e.id === elementId);
+    if (!el) return;
+    pushUndo();
+    const others = screen.elements.filter((e) => e.id !== elementId);
+    project = {
+      ...project,
+      screens: project.screens.map((s) =>
+        s.id === activeScreenId
+          ? { ...s, elements: [...others, el] }
+          : s
+      ),
+    };
+    updateSnapshot();
+  },
+
+  sendToBack(elementId: string) {
+    const screen = project.screens.find((s) => s.id === activeScreenId);
+    if (!screen) return;
+    const el = screen.elements.find((e) => e.id === elementId);
+    if (!el) return;
+    pushUndo();
+    const others = screen.elements.filter((e) => e.id !== elementId);
+    project = {
+      ...project,
+      screens: project.screens.map((s) =>
+        s.id === activeScreenId
+          ? { ...s, elements: [el, ...others] }
+          : s
+      ),
+    };
+    updateSnapshot();
+  },
+
+  // --- Screen scaffolding ---
+
+  scaffoldScreens(screenNames: string[], goal: string) {
+    pushUndo();
+    const screens: Screen[] = screenNames.map((name, i) => ({
+      id: uuid(),
+      name,
+      userGoal: goal,
+      elements: [],
+      activeState: 'default' as ScreenStateType,
+      flowX: i * 300,
+      flowY: 0,
+    }));
+    project = { ...project, screens };
+    activeScreenId = screens[0].id;
+    selectedElementIds = new Set();
     updateSnapshot();
   },
 
