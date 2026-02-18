@@ -649,42 +649,6 @@ const actions = {
     updateSnapshot();
   },
 
-  // --- Screen scaffolding ---
-
-  scaffoldScreens(screenNames: string[], goal: string) {
-    pushUndo();
-    const screens: Screen[] = screenNames.map((name, i) => ({
-      id: uuid(),
-      name,
-      userGoal: goal,
-      elements: [],
-      activeState: 'default' as ScreenStateType,
-      flowX: i * 300,
-      flowY: 0,
-    }));
-    project = { ...project, screens };
-    activeScreenId = screens[0].id;
-    selectedElementIds = new Set();
-    updateSnapshot();
-  },
-
-  scaffoldScreensWithGoals(screenNames: string[], perScreenGoals: string[], fullGoal: string) {
-    pushUndo();
-    const screens: Screen[] = screenNames.map((name, i) => ({
-      id: uuid(),
-      name,
-      userGoal: perScreenGoals[i] || fullGoal,
-      elements: [],
-      activeState: 'default' as ScreenStateType,
-      flowX: i * 300,
-      flowY: 0,
-    }));
-    project = { ...project, screens };
-    activeScreenId = screens[0].id;
-    selectedElementIds = new Set();
-    updateSnapshot();
-  },
-
   // --- Arrows ---
 
   addArrow(fromScreenId: string, toScreenId: string, trigger: string) {

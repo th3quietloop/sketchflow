@@ -267,27 +267,15 @@ export default function ScreenCanvas() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Empty state hint — contextual per screen */}
+      {/* Empty state hint — minimal, canvas-first */}
       {visibleElements.length === 0 && !editingId && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-          <div className="text-center max-w-xs">
-            <div className="text-4xl mb-3 opacity-20">
-              {project.device === 'mobile' ? '📱' : project.device === 'tablet' ? '📟' : '🖥'}
-            </div>
-            {screen.name && screen.name !== 'Screen 1' && (
-              <p className="text-base font-semibold text-gray-400 mb-1">{screen.name}</p>
-            )}
-            {screen.userGoal && (
-              <p className="text-xs text-gray-500 mb-3 italic max-w-[200px] mx-auto">&ldquo;{screen.userGoal}&rdquo;</p>
-            )}
-            <p className="text-sm text-gray-500 mb-1">
-              Drag a component from the sidebar
+          <div className="text-center">
+            <p className="text-sm text-gray-500">
+              Click a tool and click to place, or drag from the sidebar
             </p>
-            <p className="text-xs text-gray-600">
-              or click a tool, then click on the canvas to place it
-            </p>
-            <p className="text-[10px] text-gray-600 mt-2">
-              Hold <span className="text-gray-500">Shift</span> to place multiple elements
+            <p className="text-[10px] text-gray-600 mt-1.5">
+              <span className="text-gray-500">Shift+click</span> to place multiple
             </p>
           </div>
         </div>
