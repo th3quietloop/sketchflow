@@ -40,21 +40,131 @@ function createDefaultProject(): Project {
   };
 }
 
-const STORAGE_KEY = 'sketchflow-project';
+const STORAGE_KEY = 'sketchflow-projects';
+const ACTIVE_KEY = 'sketchflow-active-project';
 const UNDO_LIMIT = 50;
 const SAVE_DEBOUNCE_MS = 800;
 
-// ─── localStorage persistence ──────────────────────────────
+// ─── Multi-project localStorage persistence ─────────────────
 
-function loadFromStorage(): Project | null {
-  if (typeof window === 'undefined') return null;
+interface ProjectIndex {
+  id: string;
+  name: string;
+  updatedAt: number;
+}
+
+function loadProjectList(): ProjectIndex[] {
+  if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as ProjectIndex[];
+  } catch {
+    return [];
+  }
+}
+
+function saveProjectList(list: ProjectIndex[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  } catch {}
+}
+
+/** Ensure all required fields exist with safe defaults */
+function sanitizeProject(raw: Record<string, unknown>): Project {
+  return {
+    id: (raw.id as string) || uuid(),
+    name: (raw.name as string) || 'Untitled Project',
+    goal: (raw.goal as string) || '',
+    device: ['mobile', 'tablet', 'desktop'].includes(raw.device as string)
+      ? (raw.device as Project['device'])
+      : 'mobile',
+    screens: Array.isArray(raw.screens) && raw.screens.length > 0
+      ? (raw.screens as Screen[]).map((s) => ({
+          ...s,
+          elements: Array.isArray(s.elements) ? s.elements : [],
+          activeState: s.activeState || 'default',
+          flowX: typeof s.flowX === 'number' ? s.flowX : 0,
+          flowY: typeof s.flowY === 'number' ? s.flowY : 0,
+          userGoal: s.userGoal || '',
+        }))
+      : [createDefaultScreen()],
+    arrows: Array.isArray(raw.arrows) ? (raw.arrows as FlowArrow[]) : [],
+    versions: Array.isArray(raw.versions) ? (raw.versions as VersionSnapshot[]) : [],
+  };
+}
+
+function loadProjectById(id: string): Project | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(`sketchflow-p-${id}`);
     if (!raw) return null;
-    return JSON.parse(raw) as Project;
+    return sanitizeProject(JSON.parse(raw));
   } catch {
     return null;
   }
+}
+
+function saveProjectData(p: Project) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(`sketchflow-p-${p.id}`, JSON.stringify(p));
+    // Update the index
+    const list = loadProjectList();
+    const idx = list.findIndex((item) => item.id === p.id);
+    const entry: ProjectIndex = { id: p.id, name: p.name, updatedAt: Date.now() };
+    if (idx >= 0) {
+      list[idx] = entry;
+    } else {
+      list.push(entry);
+    }
+    saveProjectList(list);
+    localStorage.setItem(ACTIVE_KEY, p.id);
+  } catch {}
+}
+
+function deleteProjectData(id: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(`sketchflow-p-${id}`);
+    const list = loadProjectList().filter((item) => item.id !== id);
+    saveProjectList(list);
+  } catch {}
+}
+
+// Migrate from old single-project format if needed
+function migrateOldStorage(): Project | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const old = localStorage.getItem('sketchflow-project');
+    if (!old) return null;
+    const p = sanitizeProject(JSON.parse(old));
+    saveProjectData(p);
+    localStorage.removeItem('sketchflow-project');
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+function loadFromStorage(): Project | null {
+  if (typeof window === 'undefined') return null;
+  // Try new format first
+  const activeId = localStorage.getItem(ACTIVE_KEY);
+  if (activeId) {
+    const p = loadProjectById(activeId);
+    if (p) return p;
+  }
+  // Try loading most recent from index
+  const list = loadProjectList();
+  if (list.length > 0) {
+    const sorted = [...list].sort((a, b) => b.updatedAt - a.updatedAt);
+    const p = loadProjectById(sorted[0].id);
+    if (p) return p;
+  }
+  // Try migrating old format
+  return migrateOldStorage();
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -62,11 +172,7 @@ function saveToStorage(p: Project) {
   if (typeof window === 'undefined') return;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
-    } catch {
-      // storage full — silently fail
-    }
+    saveProjectData(p);
   }, SAVE_DEBOUNCE_MS);
 }
 
@@ -98,6 +204,7 @@ function pushUndo() {
 const savedProject = loadFromStorage();
 let project: Project = savedProject ?? createDefaultProject();
 let selectedElementIds: Set<string> = new Set();
+let selectedArrowId: string | null = null;
 let activeScreenId: string = project.screens[0]?.id ?? '';
 let activeTool: ElementType | 'select' | 'arrow' = 'select';
 let viewMode: 'screen' | 'flow' = 'screen';
@@ -121,6 +228,7 @@ type ViewModeType = 'screen' | 'flow';
 interface StoreSnapshot {
   project: Project;
   selectedElementIds: Set<string>;
+  selectedArrowId: string | null;
   activeScreenId: string;
   activeTool: ToolType;
   viewMode: ViewModeType;
@@ -135,6 +243,7 @@ function buildSnapshot(): StoreSnapshot {
   return {
     project: { ...project },
     selectedElementIds: new Set(selectedElementIds),
+    selectedArrowId,
     activeScreenId,
     activeTool,
     viewMode,
@@ -329,8 +438,15 @@ const actions = {
   },
 
   updateElement(elementId: string, updates: Partial<CanvasElement>) {
-    if (updates.x !== undefined) updates.x = snap(updates.x);
-    if (updates.y !== undefined) updates.y = snap(updates.y);
+    // Clone updates to avoid mutating caller's object
+    const u = { ...updates };
+    if (u.x !== undefined) u.x = snap(u.x);
+    if (u.y !== undefined) u.y = snap(u.y);
+
+    // Push undo for property changes (not position/size — those use beginDrag)
+    const isPropertyChange = u.label !== undefined || u.annotation !== undefined
+      || u.semanticTag !== undefined || u.screenState !== undefined;
+    if (isPropertyChange) pushUndo();
 
     project = {
       ...project,
@@ -339,7 +455,7 @@ const actions = {
           ? {
               ...s,
               elements: s.elements.map((el) =>
-                el.id === elementId ? { ...el, ...updates } : el
+                el.id === elementId ? { ...el, ...u } : el
               ),
             }
           : s
@@ -461,12 +577,30 @@ const actions = {
     updateSnapshot();
   },
 
+  selectArrow(arrowId: string | null) {
+    selectedArrowId = arrowId;
+    selectedElementIds = new Set();
+    updateSnapshot();
+  },
+
+  deleteSelectedArrow() {
+    if (!selectedArrowId) return;
+    pushUndo();
+    project = {
+      ...project,
+      arrows: project.arrows.filter((a) => a.id !== selectedArrowId),
+    };
+    selectedArrowId = null;
+    updateSnapshot();
+  },
+
   removeArrow(arrowId: string) {
     pushUndo();
     project = {
       ...project,
       arrows: project.arrows.filter((a) => a.id !== arrowId),
     };
+    if (selectedArrowId === arrowId) selectedArrowId = null;
     updateSnapshot();
   },
 
@@ -514,6 +648,7 @@ const actions = {
     project = p;
     activeScreenId = p.screens[0]?.id ?? '';
     selectedElementIds = new Set();
+    selectedArrowId = null;
     activeTool = 'select';
     undoStack.length = 0;
     redoStack.length = 0;
@@ -524,10 +659,98 @@ const actions = {
     project = createDefaultProject();
     activeScreenId = project.screens[0].id;
     selectedElementIds = new Set();
+    selectedArrowId = null;
     activeTool = 'select';
     undoStack.length = 0;
     redoStack.length = 0;
     updateSnapshot();
+  },
+
+  // --- Multi-project ---
+
+  getProjectList(): ProjectIndex[] {
+    return loadProjectList();
+  },
+
+  switchProject(projectId: string) {
+    // Save current project first
+    saveProjectData(project);
+    const p = loadProjectById(projectId);
+    if (!p) return;
+    project = p;
+    activeScreenId = p.screens[0]?.id ?? '';
+    selectedElementIds = new Set();
+    selectedArrowId = null;
+    activeTool = 'select';
+    viewMode = 'screen';
+    undoStack.length = 0;
+    redoStack.length = 0;
+    localStorage.setItem(ACTIVE_KEY, projectId);
+    updateSnapshot();
+  },
+
+  createNewProject() {
+    // Save current project first
+    saveProjectData(project);
+    project = createDefaultProject();
+    activeScreenId = project.screens[0].id;
+    selectedElementIds = new Set();
+    selectedArrowId = null;
+    activeTool = 'select';
+    viewMode = 'screen';
+    undoStack.length = 0;
+    redoStack.length = 0;
+    saveProjectData(project);
+    updateSnapshot();
+  },
+
+  deleteProject(projectId: string) {
+    if (projectId === project.id) return; // Can't delete active project
+    deleteProjectData(projectId);
+    updateSnapshot();
+  },
+
+  exportProjectJSON(): string {
+    return JSON.stringify(project, null, 2);
+  },
+
+  importProjectJSON(json: string) {
+    try {
+      const raw = JSON.parse(json);
+      if (!raw || !Array.isArray(raw.screens) || raw.screens.length === 0) {
+        throw new Error('Invalid project');
+      }
+      // Ensure required fields exist with defaults
+      const p: Project = {
+        id: uuid(),
+        name: raw.name || 'Imported Project',
+        goal: raw.goal || '',
+        device: ['mobile', 'tablet', 'desktop'].includes(raw.device) ? raw.device : 'mobile',
+        screens: raw.screens.map((s: Record<string, unknown>) => ({
+          id: (s.id as string) || uuid(),
+          name: (s.name as string) || 'Screen',
+          userGoal: (s.userGoal as string) || '',
+          elements: Array.isArray(s.elements) ? s.elements : [],
+          activeState: (s.activeState as string) || 'default',
+          flowX: typeof s.flowX === 'number' ? s.flowX : 0,
+          flowY: typeof s.flowY === 'number' ? s.flowY : 0,
+        })),
+        arrows: Array.isArray(raw.arrows) ? raw.arrows : [],
+        versions: Array.isArray(raw.versions) ? raw.versions : [],
+      };
+      project = p;
+      activeScreenId = p.screens[0]?.id ?? '';
+      selectedElementIds = new Set();
+      selectedArrowId = null;
+      activeTool = 'select';
+      viewMode = 'screen';
+      undoStack.length = 0;
+      redoStack.length = 0;
+      saveProjectData(project);
+      updateSnapshot();
+    } catch {
+      // Invalid JSON — silently fail
+    }
   },
 };
 

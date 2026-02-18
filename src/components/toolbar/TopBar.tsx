@@ -2,6 +2,7 @@
 
 import { useProjectStore } from '@/store/useProjectStore';
 import type { DeviceType } from '@/types';
+import ProjectSwitcher from './ProjectSwitcher';
 
 interface Props {
   onExport: () => void;
@@ -31,8 +32,9 @@ export default function TopBar({ onExport, onVersions }: Props) {
 
   return (
     <header className="h-12 bg-gray-950 border-b border-gray-800 flex items-center justify-between px-4">
-      {/* Left: project name + device */}
+      {/* Left: project switcher + name + device */}
       <div className="flex items-center gap-4">
+        <ProjectSwitcher />
         <input
           type="text"
           value={project.name}

@@ -35,6 +35,7 @@ export default function ScreenCanvas() {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragElementState, setDragElementState] = useState<CanvasElement | null>(null);
+  const [dropHighlight, setDropHighlight] = useState(false);
 
   const screen = project.screens.find((s) => s.id === activeScreenId);
   const dim = DEVICE_DIMENSIONS[project.device];
@@ -42,6 +43,7 @@ export default function ScreenCanvas() {
   const stageWidth = dim.width + CANVAS_PADDING * 2;
   const stageHeight = dim.height + CANVAS_PADDING * 2;
 
+  // ─── Click-to-place (existing behavior) ────────────────
   const handleStageClick = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       if (e.target !== e.target.getStage() && e.target.name() !== 'device-bg') {
@@ -67,7 +69,53 @@ export default function ScreenCanvas() {
     [activeTool, addElement, selectElement, dim]
   );
 
-  // Keyboard shortcuts
+  // ─── Drag-and-drop from sidebar ────────────────────────
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('sketchflow/element-type')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      setDropHighlight(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDropHighlight(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      setDropHighlight(false);
+      const type = e.dataTransfer.getData('sketchflow/element-type') as ElementType;
+      if (!type) return;
+
+      e.preventDefault();
+
+      // Calculate drop position relative to the canvas stage
+      const container = containerRef.current;
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      // Account for scroll offset within the container
+      const scrollLeft = container.scrollLeft;
+      const scrollTop = container.scrollTop;
+
+      // The stage is centered in the container — find its offset
+      const stageEl = container.querySelector('canvas')?.parentElement;
+      const stageRect = stageEl?.getBoundingClientRect();
+      if (!stageRect) return;
+
+      const x = e.clientX - stageRect.left - CANVAS_PADDING;
+      const y = e.clientY - stageRect.top - CANVAS_PADDING;
+
+      // Only place if within device bounds
+      if (x >= 0 && y >= 0 && x <= dim.width && y <= dim.height) {
+        addElement(type, x, y);
+      }
+    },
+    [addElement, dim]
+  );
+
+  // ─── Keyboard shortcuts ────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (
@@ -127,7 +175,12 @@ export default function ScreenCanvas() {
   return (
     <div
       ref={containerRef}
-      className="flex-1 bg-gray-900 overflow-auto flex items-start justify-center pt-8"
+      className={`flex-1 bg-gray-900 overflow-auto flex items-start justify-center pt-8 transition-colors ${
+        dropHighlight ? 'bg-blue-950/30' : ''
+      }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       <Stage
         ref={stageRef}

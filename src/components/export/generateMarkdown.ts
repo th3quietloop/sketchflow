@@ -4,8 +4,6 @@ import { DEVICE_DIMENSIONS } from '@/types';
 type ExportTarget = 'react-tailwind' | 'html-css' | 'nextjs';
 
 // ─── Spatial layout engine ─────────────────────────────────
-// Converts pixel-positioned elements into a readable ASCII layout
-// that preserves spatial relationships and nesting.
 
 interface LayoutNode {
   element: CanvasElement;
@@ -25,7 +23,6 @@ function contains(a: CanvasElement, b: CanvasElement): boolean {
 
 /** Build a tree from flat elements based on spatial containment */
 function buildLayoutTree(elements: CanvasElement[]): LayoutNode[] {
-  // Sort by area descending — larger elements are potential parents
   const sorted = [...elements].sort(
     (a, b) => b.width * b.height - (a.width * a.height)
   );
@@ -40,7 +37,6 @@ function buildLayoutTree(elements: CanvasElement[]): LayoutNode[] {
     const childNode = nodes.get(child.id)!;
     let placed = false;
 
-    // Find the smallest container that holds this element
     let bestParent: LayoutNode | null = null;
     let bestArea = Infinity;
 
@@ -69,7 +65,6 @@ function buildLayoutTree(elements: CanvasElement[]): LayoutNode[] {
     }
   }
 
-  // Sort children by Y then X within each parent
   function sortChildren(nodeList: LayoutNode[]) {
     nodeList.sort((a, b) => a.element.y - b.element.y || a.element.x - b.element.x);
     nodeList.forEach((n) => sortChildren(n.children));
@@ -222,7 +217,7 @@ function renderAnnotations(screen: Screen, state: ScreenStateType): string {
   return lines.join('\n');
 }
 
-// ─── Element inventory (structured, not just ASCII art) ────
+// ─── Element inventory ─────────────────────────────────────
 
 function renderElementInventory(
   screen: Screen,
@@ -247,6 +242,158 @@ function renderElementInventory(
   return lines.join('\n');
 }
 
+// ─── Component mapping suggestions ─────────────────────────
+
+function getComponentSuggestion(
+  type: CanvasElement['type'],
+  target: ExportTarget,
+  semanticTag: CanvasElement['semanticTag'],
+): string {
+  if (target === 'html-css') {
+    switch (type) {
+      case 'container': return '<section>';
+      case 'heading': return '<h1>–<h6>';
+      case 'body': return '<p>';
+      case 'cta': return semanticTag === 'destructive-action' ? '<button class="destructive">' : '<button>';
+      case 'textfield': return '<input type="text">';
+      case 'image': return '<figure> + <img>';
+      case 'card': return '<article>';
+      case 'topnav': return '<nav>';
+      case 'tabbar': return '<nav role="tablist">';
+      case 'bottomsheet': return '<dialog> or <div role="dialog">';
+      case 'list': return '<ul> or <ol>';
+      default: return '<div>';
+    }
+  }
+
+  // React + Tailwind / Next.js
+  switch (type) {
+    case 'container': return 'div with flex/grid layout';
+    case 'heading': return 'h1–h6 with text-xl/2xl/3xl';
+    case 'body': return 'p with text-sm/base';
+    case 'cta': return semanticTag === 'destructive-action'
+      ? 'shadcn/ui Button variant="destructive"'
+      : 'shadcn/ui Button';
+    case 'textfield': return 'shadcn/ui Input';
+    case 'image': return 'next/image (Next.js) or <img>';
+    case 'card': return 'shadcn/ui Card';
+    case 'topnav': return 'shadcn/ui NavigationMenu';
+    case 'tabbar': return 'shadcn/ui Tabs';
+    case 'bottomsheet': return 'shadcn/ui Sheet or Dialog';
+    case 'list': return 'map() with shadcn/ui Separator between items';
+    default: return 'div';
+  }
+}
+
+function renderComponentMap(
+  screen: Screen,
+  state: ScreenStateType,
+  target: ExportTarget,
+): string {
+  const elements = screen.elements
+    .filter((el) => el.screenState === state)
+    .sort((a, b) => a.y - b.y || a.x - b.x);
+
+  if (elements.length === 0) return '';
+
+  const lines = ['**Suggested Components:**'];
+  // Deduplicate by type+semantic combo
+  const seen = new Set<string>();
+  elements.forEach((el) => {
+    const key = `${el.type}:${el.semanticTag}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const suggestion = getComponentSuggestion(el.type, target, el.semanticTag);
+    lines.push(`- ${typeLabel(el.type)} → \`${suggestion}\``);
+  });
+
+  return lines.join('\n');
+}
+
+// ─── Responsive hints ──────────────────────────────────────
+
+function getResponsiveHints(project: Project): string {
+  const dim = DEVICE_DIMENSIONS[project.device];
+  const lines = ['**Responsive Breakpoints:**'];
+
+  if (project.device === 'mobile') {
+    lines.push(`- Base: ${dim.width}px (mobile — designed for)`);
+    lines.push('- sm (640px): Stack → side-by-side where appropriate');
+    lines.push('- md (768px): Increase padding, font sizes');
+    lines.push('- lg (1024px): Max-width container, centered layout');
+  } else if (project.device === 'tablet') {
+    lines.push('- Below 768px: Collapse to single-column mobile layout');
+    lines.push(`- Base: ${dim.width}px (tablet — designed for)`);
+    lines.push('- lg (1024px): Expand grid columns, increase spacing');
+  } else {
+    lines.push('- Below 640px: Single column, stacked layout');
+    lines.push('- md (768px): 2-column layout where applicable');
+    lines.push(`- Base: ${dim.width}px (desktop — designed for)`);
+  }
+
+  lines.push('');
+  lines.push('**Layout Strategy:**');
+
+  // Analyze elements to give specific advice
+  const allElements = project.screens.flatMap((s) => s.elements);
+  const hasTopnav = allElements.some((el) => el.type === 'topnav');
+  const hasTabbar = allElements.some((el) => el.type === 'tabbar');
+  const hasBottomsheet = allElements.some((el) => el.type === 'bottomsheet');
+
+  if (hasTopnav) {
+    lines.push('- Top nav: Sticky on all breakpoints. Collapse to hamburger menu on mobile.');
+  }
+  if (hasTabbar) {
+    lines.push('- Tab bar: Fixed bottom on mobile. Convert to sidebar tabs on desktop.');
+  }
+  if (hasBottomsheet) {
+    lines.push('- Bottom sheet: Slide up on mobile. Render as side panel or modal on desktop.');
+  }
+
+  return lines.join('\n');
+}
+
+// ─── JSON element tree ─────────────────────────────────────
+
+interface JsonTreeNode {
+  type: string;
+  label: string;
+  semanticTag?: string;
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  annotation?: string;
+  children?: JsonTreeNode[];
+}
+
+function layoutNodeToJson(node: LayoutNode): JsonTreeNode {
+  const el = node.element;
+  const result: JsonTreeNode = {
+    type: el.type,
+    label: el.label,
+    position: { x: Math.round(el.x), y: Math.round(el.y) },
+    size: { width: Math.round(el.width), height: Math.round(el.height) },
+  };
+  if (el.semanticTag !== 'none') result.semanticTag = el.semanticTag;
+  if (el.annotation) result.annotation = el.annotation;
+  if (node.children.length > 0) {
+    result.children = node.children.map(layoutNodeToJson);
+  }
+  return result;
+}
+
+function renderJsonTree(
+  screen: Screen,
+  state: ScreenStateType,
+): string {
+  const elements = screen.elements.filter((el) => el.screenState === state);
+  if (elements.length === 0) return '';
+
+  const tree = buildLayoutTree(elements);
+  const jsonNodes = tree.map(layoutNodeToJson);
+
+  return '**JSON Element Tree:**\n```json\n' + JSON.stringify(jsonNodes, null, 2) + '\n```';
+}
+
 // ─── Target-specific instructions ──────────────────────────
 
 function getTargetInstructions(target: ExportTarget): string {
@@ -255,20 +402,24 @@ function getTargetInstructions(target: ExportTarget): string {
       return `Generate a complete React + Tailwind CSS application from the blueprint above.
 - Use functional components with hooks
 - Use Tailwind CSS utility classes for all styling
-- Use shadcn/ui components where appropriate
+- Use shadcn/ui components where appropriate (see Suggested Components sections)
 - Handle all screen states (default, empty, error, loading)
 - Respect semantic labels (Primary CTA, Trust Signal, etc.) in styling decisions
 - Use the element inventory for exact component structure — the ASCII art shows layout only
+- Use the JSON element tree for precise positioning and nesting
+- Follow the responsive breakpoint guidance for adaptive layout
 - Mobile-first, responsive design
 - Add ARIA labels and accessibility attributes
 - Do not add features not described in the blueprint`;
     case 'html-css':
       return `Generate semantic HTML5 + CSS from the blueprint above.
-- Use semantic HTML elements (nav, main, section, article, etc.)
+- Use semantic HTML elements (see Suggested Components sections)
 - CSS with custom properties for theming
 - Handle all screen states (default, empty, error, loading)
 - Respect semantic labels in styling decisions
 - Use the element inventory for exact component structure
+- Use the JSON element tree for precise positioning and nesting
+- Follow the responsive breakpoint guidance for adaptive layout
 - Mobile-first, responsive design
 - Add ARIA labels and accessibility attributes
 - Do not add features not described in the blueprint`;
@@ -276,11 +427,13 @@ function getTargetInstructions(target: ExportTarget): string {
       return `Generate a complete Next.js application using App Router from the blueprint above.
 - Use Next.js 14 App Router with file-based routing
 - Use Tailwind CSS utility classes for all styling
-- Use shadcn/ui components where appropriate
-- Build navigation routing between all screens
+- Use shadcn/ui components where appropriate (see Suggested Components sections)
+- Build navigation routing between all screens (see Navigation Flow)
 - Handle all screen states (default, empty, error, loading)
 - Respect semantic labels (Primary CTA, Trust Signal, etc.) in styling decisions
 - Use the element inventory for exact component structure — the ASCII art shows layout only
+- Use the JSON element tree for precise positioning and nesting
+- Follow the responsive breakpoint guidance for adaptive layout
 - Mobile-first, responsive design
 - Use Server Components by default, Client Components only when needed
 - Add ARIA labels and accessibility attributes
@@ -300,6 +453,9 @@ export function generateMarkdown(project: Project, target: ExportTarget): string
     md += `## Goal: ${project.goal}\n`;
   }
   md += '\n---\n\n';
+
+  // Responsive hints
+  md += getResponsiveHints(project) + '\n\n---\n\n';
 
   // Screens
   project.screens.forEach((screen, idx) => {
@@ -323,10 +479,22 @@ export function generateMarkdown(project: Project, target: ExportTarget): string
         md += inventory + '\n\n';
       }
 
+      // Component mapping suggestions
+      const componentMap = renderComponentMap(screen, state, target);
+      if (componentMap) {
+        md += componentMap + '\n\n';
+      }
+
       // Annotations and semantic tags
       const annotations = renderAnnotations(screen, state);
       if (annotations) {
         md += annotations + '\n\n';
+      }
+
+      // JSON element tree
+      const jsonTree = renderJsonTree(screen, state);
+      if (jsonTree) {
+        md += jsonTree + '\n\n';
       }
     });
 

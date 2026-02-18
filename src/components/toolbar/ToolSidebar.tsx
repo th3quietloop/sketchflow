@@ -6,6 +6,11 @@ import { useProjectStore } from '@/store/useProjectStore';
 export default function ToolSidebar() {
   const { activeTool, setActiveTool, viewMode } = useProjectStore();
 
+  const handleDragStart = (e: React.DragEvent, type: ElementType) => {
+    e.dataTransfer.setData('sketchflow/element-type', type);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
   return (
     <aside className="w-56 bg-gray-950 border-r border-gray-800 flex flex-col h-full overflow-y-auto">
       <div className="p-3 border-b border-gray-800">
@@ -44,7 +49,7 @@ export default function ToolSidebar() {
         </div>
       )}
 
-      {/* Element tools */}
+      {/* Element tools — draggable + clickable */}
       {TOOL_GROUPS.map((group) => (
         <div key={group.label} className="px-2 pt-3">
           <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-3 mb-1">
@@ -53,8 +58,10 @@ export default function ToolSidebar() {
           {group.tools.map((tool) => (
             <button
               key={tool.type}
+              draggable
+              onDragStart={(e) => handleDragStart(e, tool.type)}
               onClick={() => setActiveTool(tool.type)}
-              className={`w-full text-left px-3 py-1.5 rounded-md text-sm flex items-center gap-2 transition-colors ${
+              className={`w-full text-left px-3 py-1.5 rounded-md text-sm flex items-center gap-2 transition-colors cursor-grab active:cursor-grabbing ${
                 activeTool === tool.type
                   ? 'bg-blue-600 text-white'
                   : 'text-gray-300 hover:bg-gray-800'
@@ -70,6 +77,7 @@ export default function ToolSidebar() {
       {/* Keyboard shortcuts hint */}
       <div className="mt-auto p-3 border-t border-gray-800">
         <p className="text-[10px] text-gray-600 leading-relaxed">
+          <span className="text-gray-500">Drag</span> tool onto canvas<br />
           <span className="text-gray-500">V</span> Select &nbsp;
           <span className="text-gray-500">Del</span> Delete<br />
           <span className="text-gray-500">Esc</span> Deselect
